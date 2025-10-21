@@ -63,6 +63,74 @@ SELECTORS = {
 # Detect tags like [@ayda] and plain name mentions
 TAG_PATTERN = re.compile(r"\[@([a-zA-Z0-9_\- '’]+)\]")
 
+# Helpers used for detecting plain-text name mentions
+def _tokenize_name_for_patterns(stem: str):
+    sanitized = re.sub(r"[^0-9A-Za-z'’_\-\s]", " ", stem)
+    parts = [p for p in re.split(r"[\s_\-]+", sanitized) if p]
+    if len(parts) == 1:
+        part = parts[0]
+        camel = re.findall(r"[A-Z]?[a-z0-9'’]+|[A-Z]+(?![a-z])", part)
+        if len(camel) > 1:
+            parts = camel
+    return [p.lower() for p in parts]
+
+
+def _flex_apostrophes(text: str) -> str:
+    return re.sub(r"[’']", "['’]", text)
+
+
+def _default_patterns_for(name: str) -> list[str]:
+    raw_key = name.strip().lower()
+    tokens = _tokenize_name_for_patterns(name)
+    pattern_set = set()
+
+    def add_variant(text: str):
+        if not text:
+            return
+        escaped = _flex_apostrophes(re.escape(text))
+        pattern_set.add(rf"\b{escaped}(?:['’]s)?\b")
+
+    add_variant(raw_key)
+
+    canonical = " ".join(tokens)
+    if canonical and canonical != raw_key:
+        add_variant(canonical)
+
+    if tokens:
+        joined_tokens = "[\\s_\\-]+".join(_flex_apostrophes(re.escape(t)) for t in tokens)
+        pattern_set.add(rf"\b{joined_tokens}(?:['’]s)?\b")
+        collapsed = "".join(tokens)
+        if collapsed:
+            add_variant(collapsed)
+
+    return sorted(pattern_set)
+
+
+def _resolve_alias(alias: str, char_map: dict[str, str], name_variants: dict) -> str:
+    key = alias.strip().lower()
+    if key in char_map:
+        return key
+    for name, pats in name_variants.items():
+        target = name.strip().lower()
+        if target in char_map:
+            for pattern in pats:
+                try:
+                    if re.search(pattern, alias, flags=re.IGNORECASE):
+                        return target
+                except re.error:
+                    continue
+    for raw_name in char_map.keys():
+        target = str(raw_name).strip().lower()
+        for pattern in _default_patterns_for(raw_name):
+            try:
+                if re.search(pattern, alias, flags=re.IGNORECASE):
+                    if target in char_map:
+                        return target
+            except re.error:
+                continue
+    return key
+
+
 # Load name variants from JSON
 def load_name_variants():
     if Path(NAME_VARIANTS_JSON).exists():
@@ -100,11 +168,39 @@ def load_char_map(json_path):
     return out
 
 def extract_characters(prompt_text, char_map):
-    tags = [m.group(1).strip().lower() for m in TAG_PATTERN.finditer(prompt_text)]
-    lower = prompt_text.lower()
+    raw_tags = [m.group(1).strip() for m in TAG_PATTERN.finditer(prompt_text)]
+    tags = []
+    seen = set()
+    for raw in raw_tags:
+        resolved = _resolve_alias(raw, char_map, NAME_VARIANTS)
+        if resolved and resolved not in seen:
+            tags.append(resolved)
+            seen.add(resolved)
     for name, pats in NAME_VARIANTS.items():
-        if name not in tags and any(re.search(p, lower) for p in pats):
-            tags.append(name)
+        key = name.strip().lower()
+        if key in seen:
+            continue
+        for pattern in pats:
+            try:
+                if re.search(pattern, prompt_text, flags=re.IGNORECASE):
+                    tags.append(key)
+                    seen.add(key)
+                    break
+            except re.error:
+                continue
+
+    for raw_name in char_map.keys():
+        key = str(raw_name).strip().lower()
+        if key in seen:
+            continue
+        for pattern in _default_patterns_for(raw_name):
+            try:
+                if re.search(pattern, prompt_text, flags=re.IGNORECASE):
+                    tags.append(key)
+                    seen.add(key)
+                    break
+            except re.error:
+                continue
     clean = TAG_PATTERN.sub("", prompt_text)
     clean = re.sub(r"\s{2,}", " ", clean).strip()
     files = [char_map[t] for t in tags if t in char_map]
