@@ -130,14 +130,71 @@ class ImageGenApp:
             return
         img_dir = Path(img_dir)
 
+        def tokenize_name(stem: str):
+            """Split a filename stem into lowercase tokens.
+
+            Handles separators (spaces, hyphen, underscore) and CamelCase so that a
+            name like "AydaPrime" yields tokens ["ayda", "prime"]. Apostrophes are
+            preserved to support names such as "O'Connor".
+            """
+            sanitized = re.sub(r"[^0-9A-Za-z'’_\-\s]", " ", stem)
+            parts = [p for p in re.split(r"[\s_\-]+", sanitized) if p]
+            if len(parts) == 1:
+                part = parts[0]
+                camel = re.findall(r"[A-Z]?[a-z0-9'’]+|[A-Z]+(?![a-z])", part)
+                if len(camel) > 1:
+                    parts = camel
+            return [p.lower() for p in parts]
+
+        def flex_apostrophes(text: str) -> str:
+            """Allow both straight and curly apostrophes inside a regex pattern."""
+            return re.sub(r"[’']", "['’]", text)
+
+        def build_patterns(raw_key: str, tokens: list[str]):
+            pattern_set = set()
+
+            def add_variant(text: str):
+                if not text:
+                    return
+                escaped = flex_apostrophes(re.escape(text))
+                pattern_set.add(rf"\b{escaped}(?:['’]s)?\b")
+
+            add_variant(raw_key)
+
+            canonical = " ".join(tokens)
+            if canonical and canonical != raw_key:
+                add_variant(canonical)
+
+            if tokens:
+                joined_tokens = "[\\s_\\-]+".join(flex_apostrophes(re.escape(t)) for t in tokens)
+                pattern_set.add(rf"\b{joined_tokens}(?:['’]s)?\b")
+                collapsed = "".join(tokens)
+                if collapsed:
+                    add_variant(collapsed)
+
+            return sorted(pattern_set)
+
         chars = {}
         variants = {}
         for file in img_dir.iterdir():
             if file.is_file() and file.suffix.lower() in [".png", ".jpg", ".jpeg", ".webp"]:
-                key = file.stem.strip().lower()
-                chars[key] = str(file.resolve())
-                safe = re.escape(key)
-                variants[key] = [fr"\b{safe}\b"]
+                stem = file.stem.strip()
+                if not stem:
+                    continue
+                raw_key = stem.lower()
+                tokens = tokenize_name(stem)
+                if not tokens and not raw_key:
+                    continue
+
+                canonical_key = " ".join(tokens)
+
+                patterns = build_patterns(raw_key, tokens)
+                primary_key = canonical_key or raw_key
+
+                resolved_path = str(file.resolve())
+                if primary_key:
+                    chars[primary_key] = resolved_path
+                    variants[primary_key] = list(patterns)
 
         if not chars:
             messagebox.showerror("No images", f"No character images found in {img_dir}")
@@ -332,15 +389,90 @@ class ImageGenApp:
 
         NAME_VARIANTS = load_name_variants(NAME_VARIANTS_JSON)
 
-        def extract_characters(prompt_text, char_map):
-            tags = [m.group(1).strip().lower() for m in TAG_PATTERN.finditer(prompt_text)]
-            lower = prompt_text.lower()
+        def tokenize_for_patterns(stem: str):
+            sanitized = re.sub(r"[^0-9A-Za-z'’_\-\s]", " ", stem)
+            parts = [p for p in re.split(r"[\s_\-]+", sanitized) if p]
+            if len(parts) == 1:
+                part = parts[0]
+                camel = re.findall(r"[A-Z]?[a-z0-9'’]+|[A-Z]+(?![a-z])", part)
+                if len(camel) > 1:
+                    parts = camel
+            return [p.lower() for p in parts]
+
+        def flex_apostrophes(text: str) -> str:
+            return re.sub(r"[’']", "['’]", text)
+
+        def default_patterns_for(name: str):
+            raw_key = name.strip().lower()
+            tokens = tokenize_for_patterns(name)
+            pattern_set = set()
+
+            def add_variant(text: str):
+                if not text:
+                    return
+                escaped = flex_apostrophes(re.escape(text))
+                pattern_set.add(rf"\b{escaped}(?:['’]s)?\b")
+
+            add_variant(raw_key)
+
+            canonical = " ".join(tokens)
+            if canonical and canonical != raw_key:
+                add_variant(canonical)
+
+            if tokens:
+                joined_tokens = "[\\s_\\-]+".join(flex_apostrophes(re.escape(t)) for t in tokens)
+                pattern_set.add(rf"\b{joined_tokens}(?:['’]s)?\b")
+                collapsed = "".join(tokens)
+                if collapsed:
+                    add_variant(collapsed)
+
+            return sorted(pattern_set)
+
+        def resolve_alias(alias: str):
+            key = alias.strip().lower()
+            if key in char_map:
+                return key
             for name, pats in NAME_VARIANTS.items():
+                target = name.strip().lower()
+                if target in char_map:
+                    for pattern in pats:
+                        try:
+                            if re.search(pattern, alias, flags=re.IGNORECASE):
+                                return target
+                        except re.error:
+                            continue
+            for raw_name in char_map.keys():
+                target = str(raw_name).strip().lower()
+                for pattern in default_patterns_for(raw_name):
+                    try:
+                        if re.search(pattern, alias, flags=re.IGNORECASE):
+                            if target in char_map:
+                                return target
+                    except re.error:
+                        continue
+            return key
+
+        def extract_characters(prompt_text, char_map):
+            raw_tags = [m.group(1).strip() for m in TAG_PATTERN.finditer(prompt_text)]
+            tags = []
+            seen = set()
+            for raw in raw_tags:
+                resolved = resolve_alias(raw)
+                if resolved and resolved not in seen:
+                    tags.append(resolved)
+                    seen.add(resolved)
+            for name, pats in NAME_VARIANTS.items():
+                key = name.strip().lower()
+                if key in seen:
+                    continue
                 try:
-                    if name not in tags and any(re.search(p, lower) for p in pats):
-                        tags.append(name)
-                except Exception:
-                    pass
+                    for pattern in pats:
+                        if re.search(pattern, prompt_text, flags=re.IGNORECASE):
+                            tags.append(key)
+                            seen.add(key)
+                            break
+                except re.error:
+                    continue
             clean = TAG_PATTERN.sub("", prompt_text)
             clean = re.sub(r"\s{2,}", " ", clean).strip()
             files = [char_map[t] for t in tags if t in char_map]
