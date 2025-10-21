@@ -100,31 +100,13 @@ def load_char_map(json_path):
     return out
 
 def extract_characters(prompt_text, char_map):
-    seen = set()
-    tags = []
-
-    def add_tag(value):
-        key = value.strip().lower()
-        if key and key not in seen:
-            seen.add(key)
-            tags.append(key)
-
-    for match in TAG_PATTERN.finditer(prompt_text):
-        add_tag(match.group(1))
-
+    tags = [m.group(1).strip().lower() for m in TAG_PATTERN.finditer(prompt_text)]
     lower = prompt_text.lower()
     for name, pats in NAME_VARIANTS.items():
-        if any(re.search(p, lower) for p in pats):
-            add_tag(name)
-
+        if name not in tags and any(re.search(p, lower) for p in pats):
+            tags.append(name)
     clean = TAG_PATTERN.sub("", prompt_text)
     clean = re.sub(r"\s{2,}", " ", clean).strip()
-
-    for name in char_map.keys():
-        pattern = re.compile(rf"\b{re.escape(name)}(?:'s)?\b", re.IGNORECASE)
-        if pattern.search(clean):
-            add_tag(name)
-
     files = [char_map[t] for t in tags if t in char_map]
     return tags, files, clean
 
