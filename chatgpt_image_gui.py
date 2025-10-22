@@ -142,24 +142,24 @@ class ImageGenApp:
         btns = ttk.Frame(form_card, style="PromptBotCard.TFrame")
         btns.grid(row=row, column=0, columnspan=3, sticky="w", pady=(0, 4))
 
-        ttk.Button(btns, text="Run setup", command=self._run_setup, style="Secondary.TButton").pack(side="left", padx=(0, 10), pady=(0, 4))
-        ttk.Button(btns, text="Start generation", command=self._start, style="Primary.TButton").pack(side="left", padx=(0, 10), pady=(0, 4))
+        ttk.Button(btns, text="Run setup", command=self._run_setup, style="Secondary.TButton").pack(side="left", padx=(0, 6), pady=(0, 2))
+        ttk.Button(btns, text="Start generation", command=self._start, style="Primary.TButton").pack(side="left", padx=(0, 6), pady=(0, 2))
         self.pause_btn = ttk.Button(btns, text="Pause wait", command=self._toggle_pause, style="Secondary.TButton")
-        self.pause_btn.pack(side="left", padx=(0, 10), pady=(0, 4))
-        ttk.Button(btns, text="Skip wait now", command=self._skip_now, style="Secondary.TButton").pack(side="left", padx=(0, 10), pady=(0, 4))
-        ttk.Button(btns, text="Stop", command=self._stop, style="Danger.TButton").pack(side="left", padx=(0, 10), pady=(0, 4))
+        self.pause_btn.pack(side="left", padx=(0, 6), pady=(0, 2))
+        ttk.Button(btns, text="Skip wait now", command=self._skip_now, style="Secondary.TButton").pack(side="left", padx=(0, 6), pady=(0, 2))
+        ttk.Button(btns, text="Stop", command=self._stop, style="Danger.TButton").pack(side="left", padx=(0, 6), pady=(0, 2))
         ttk.Button(
             btns,
             text="Launch profile in Chrome",
             command=self._launch_profile_browser,
             style="Secondary.TButton",
-        ).pack(side="left", padx=(0, 10), pady=(0, 4))
+        ).pack(side="left", padx=(0, 6), pady=(0, 2))
         ttk.Button(
             btns,
             text="Generate JSONs",
             command=self._generate_jsons,
             style="Accent.TButton",
-        ).pack(side="left", padx=(0, 10), pady=(0, 4))
+        ).pack(side="left", padx=(0, 6), pady=(0, 2))
 
         log_card = ttk.Frame(main, style="PromptBotCard.TFrame", padding=(28, 24))
         log_card.grid(row=2, column=0, sticky="nsew", pady=(28, 0))
@@ -195,6 +195,14 @@ class ImageGenApp:
             selectbackground=self.colors["accent"],
             selectforeground=self.colors["background"],
             font="TkFixedFont",
+        )
+
+        status_bar = ttk.Frame(log_card, style="PromptBotCard.TFrame")
+        status_bar.grid(row=3, column=0, sticky="ew", pady=(12, 0))
+        status_bar.grid_columnconfigure(0, weight=1)
+        self.status_var = tk.StringVar(value="Ready.")
+        ttk.Label(status_bar, textvariable=self.status_var, style="PromptBotStatus.TLabel").grid(
+            row=0, column=0, sticky="w"
         )
 
     # styling helpers
@@ -303,11 +311,18 @@ class ImageGenApp:
         )
 
         style.configure(
+            "PromptBotStatus.TLabel",
+            background=self.colors["card"],
+            foreground=self.colors["accent_muted"],
+            font=self.fonts["bold"],
+        )
+
+        style.configure(
             "Primary.TButton",
             background=self.colors["primary"],
             foreground="white",
             font=self.fonts["bold"],
-            padding=(18, 10),
+            padding=(12, 6),
             borderwidth=0,
             relief="flat",
         )
@@ -322,7 +337,7 @@ class ImageGenApp:
             background=self.colors["secondary_bg"],
             foreground=self.colors["text"],
             font=self.fonts["base"],
-            padding=(16, 10),
+            padding=(10, 6),
             borderwidth=0,
             relief="flat",
         )
@@ -337,7 +352,7 @@ class ImageGenApp:
             background=self.colors["accent"],
             foreground=self.colors["background"],
             font=self.fonts["bold"],
-            padding=(16, 10),
+            padding=(12, 6),
             borderwidth=0,
             relief="flat",
         )
@@ -352,7 +367,7 @@ class ImageGenApp:
             background=self.colors["danger"],
             foreground="white",
             font=self.fonts["bold"],
-            padding=(16, 10),
+            padding=(12, 6),
             borderwidth=0,
             relief="flat",
         )
@@ -425,9 +440,9 @@ class ImageGenApp:
     def _row(self, parent, label, var, cmd, row):
         ttk.Label(parent, text=label, style="PromptBotFieldLabel.TLabel").grid(row=row, column=0, sticky="w")
         ttk.Entry(parent, textvariable=var, style="PromptBot.TEntry").grid(
-            row=row, column=1, sticky="ew", padx=(0, 16), pady=(0, 12)
+            row=row, column=1, sticky="ew", padx=(0, 16), pady=(0, 6)
         )
-        ttk.Button(parent, text="Browse", command=cmd, style="Secondary.TButton").grid(row=row, column=2, sticky="w", pady=(0, 12))
+        ttk.Button(parent, text="Browse", command=cmd, style="Secondary.TButton").grid(row=row, column=2, sticky="w", pady=(0, 6))
 
     # pickers
     def _pick_csv(self):
@@ -455,6 +470,15 @@ class ImageGenApp:
         self.console.insert("end", msg + "\n")
         self.console.see("end")
         self.console.configure(state="disabled")
+
+    def _set_activity_status(self, message: str):
+        if not hasattr(self, "status_var"):
+            return
+
+        def updater():
+            self.status_var.set(message)
+
+        self.root.after(0, updater)
 
     # setup
     def _run_setup(self):
@@ -588,6 +612,7 @@ class ImageGenApp:
         self.pause_event.clear()
         self._update_pause_button(False)
         self._save_config()
+        self._set_activity_status("Starting batch run...")
         self.running_thread = threading.Thread(target=self._run_generator, daemon=True)
         self.running_thread.start()
 
@@ -599,6 +624,7 @@ class ImageGenApp:
         self.pause_event.clear()
         self._update_pause_button(False)
         self.log("Stop requested, will halt after the current step.")
+        self._set_activity_status("Stop requested. Finishing current step...")
 
     def _update_pause_button(self, paused: bool):
         if hasattr(self, "pause_btn"):
@@ -612,10 +638,12 @@ class ImageGenApp:
             self.pause_event.clear()
             self._update_pause_button(False)
             self.log("Countdown resumed.")
+            self._set_activity_status("Countdown resumed.")
         else:
             self.pause_event.set()
             self._update_pause_button(True)
             self.log("Countdown paused. Click 'Resume wait' to continue.")
+            self._set_activity_status("App paused. Click 'Resume wait' to continue.")
 
     def _resolve_chrome_executable(self) -> str | None:
         env_path = os.environ.get("CHROME_PATH")
@@ -1066,11 +1094,16 @@ class ImageGenApp:
             prompts = load_prompts(CSV_PATH)
             if not prompts:
                 log("No prompts found, check file")
+                self._set_activity_status("No prompts found. Update your file and try again.")
                 return
+            total_prompts = len(prompts)
+            plural = "s" if total_prompts != 1 else ""
+            self._set_activity_status(f"Loaded {total_prompts} prompt{plural}.")
             char_map = load_char_map(CHAR_MAP_JSON)
             Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
             Path(PROFILE_DIR).mkdir(parents=True, exist_ok=True)
 
+            self._set_activity_status("Launching browser session...")
             with sync_playwright() as p:
                 ctx = p.chromium.launch_persistent_context(
                     user_data_dir=PROFILE_DIR,
@@ -1080,36 +1113,46 @@ class ImageGenApp:
                     accept_downloads=True,
                 )
                 page = ctx.new_page()
+                self._set_activity_status("Checking chat composer...")
                 composer, login_needed = goto_with_fallback(page)
                 needs_user_action = login_needed or composer is None
 
                 if needs_user_action:
+                    self._set_activity_status("Awaiting manual login...")
                     log("If you see a login or human check, finish it in Chrome, open a chat, then return here and click OK.")
                     if not messagebox.askokcancel("Login check", "Finish login if needed, then click OK to start."):
                         log("Canceled by user.")
+                        self._set_activity_status("Login canceled. Batch stopped.")
                         return
                     with contextlib.suppress(Exception):
                         page.wait_for_load_state("domcontentloaded", timeout=15000)
                     dismiss_common_popups(page)
                     composer = None
+                    self._set_activity_status("Resuming automated run...")
                 else:
                     log("Chat composer detected immediately; starting batch run.")
 
                 try:
                     composer = composer or ensure_composer_ready(page)
+                    self._set_activity_status("Chat composer ready. Starting prompts...")
                 except Exception:
                     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
                     snap = Path(OUTPUT_DIR) / f"debug_no_composer_{ts}.png"
                     with contextlib.suppress(Exception):
                         page.screenshot(path=str(snap), full_page=True)
                     log(f"Composer not found, saved snapshot to {snap}")
+                    self._set_activity_status("Composer not found. See saved snapshot for details.")
                     return
 
+                stopped = False
                 for idx, item in enumerate(prompts, start=1):
                     if self.stop_event.is_set():
                         log("Stop requested, exiting loop.")
+                        self._set_activity_status("Stop requested. Finishing current step...")
+                        stopped = True
                         break
 
+                    self._set_activity_status(f"Sending prompt {idx}/{total_prompts}...")
                     raw = item["prompt"]
                     tags, char_files, clean_prompt = extract_characters(raw, char_map)
                     message = PREPROMPT + clean_prompt
@@ -1150,13 +1193,25 @@ class ImageGenApp:
                     self.skip_event.clear()
                     remaining = DELAY_BETWEEN_PROMPTS
                     log(f"Waiting up to {remaining // 60} minutes. Click 'Skip wait now' to continue immediately.")
+                    mins, secs = divmod(remaining, 60)
+                    self._set_activity_status(f"Countdown: {mins:02d}:{secs:02d} remaining")
+                    was_paused = False
                     while remaining > 0 and not self.skip_event.is_set() and not self.stop_event.is_set():
                         if self.pause_event.is_set():
+                            if not was_paused:
+                                was_paused = True
+                                self._set_activity_status("App paused. Click 'Resume wait' to continue.")
                             time.sleep(0.5)
                             continue
+                        if was_paused:
+                            was_paused = False
+                            mins, secs = divmod(remaining, 60)
+                            self._set_activity_status(f"Countdown: {mins:02d}:{secs:02d} remaining")
                         if remaining % 10 == 0 or remaining == 1:
                             mins, secs = divmod(remaining, 60)
-                            self.log(f"Time left: {mins:02d}:{secs:02d}")
+                            msg = f"Time left: {mins:02d}:{secs:02d}"
+                            log(msg)
+                            self._set_activity_status(f"Countdown: {mins:02d}:{secs:02d} remaining")
                         time.sleep(1)
                         remaining -= 1
 
@@ -1165,15 +1220,25 @@ class ImageGenApp:
 
                     if self.skip_event.is_set():
                         log(">> Skip pressed, continuing")
+                        self._set_activity_status("Skip pressed. Continuing to next prompt...")
                     elif self.stop_event.is_set():
                         log(">> Stop requested, halting after current step")
+                        self._set_activity_status("Stop requested. Finishing current step...")
+                        stopped = True
                         break
                     else:
                         log(">> Wait finished, continuing")
+                        self._set_activity_status("Wait finished. Continuing...")
 
-                log("All prompts processed.")
+                if stopped:
+                    log("Batch stopped by user.")
+                    self._set_activity_status("Batch stopped. Ready when you are.")
+                else:
+                    log("All prompts processed.")
+                    self._set_activity_status("All prompts processed.")
         except Exception as e:
             log(f"Fatal error, {e}")
+            self._set_activity_status(f"Fatal error: {e}")
         finally:
             self.pause_event.clear()
             self._update_pause_button(False)
