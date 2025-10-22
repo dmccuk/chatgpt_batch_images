@@ -4,6 +4,7 @@
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext
+from tkinter import ttk
 import threading, time, json, re, sys, contextlib, os, shutil, subprocess
 from pathlib import Path
 from datetime import datetime
@@ -17,7 +18,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 class ImageGenApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("ChatGPT batch image generator")
+        self.root.title("PromptBot caption & image generator")
 
         # state
         self.running_thread = None
@@ -45,48 +46,345 @@ class ImageGenApp:
         # try load saved config
         self._load_config()
 
-        # layout
-        r = 0
-        self._row("Prompts file", self.csv_path, self._pick_csv, r); r += 1
-        self._row("characters.json", self.char_json, self._pick_json_char, r); r += 1
-        self._row("name_variants.json", self.variants_json, self._pick_json_var, r); r += 1
-        self._row("Chrome profile folder", self.profile_dir, lambda: self._pick_folder(self.profile_dir), r); r += 1
-        self._row("Outputs folder", self.output_dir, lambda: self._pick_folder(self.output_dir), r); r += 1
+        # styling & layout
+        self._init_styles()
+        self.root.configure(bg=self.colors["background"])
+        self.root.option_add("*Font", "Segoe UI 10")
+        self.root.minsize(940, 720)
+        self.root.grid_rowconfigure(0, weight=1)
+        self.root.grid_columnconfigure(0, weight=1)
 
-        tk.Label(root, text="Preprompt").grid(row=r, column=0, sticky="e")
-        tk.Entry(root, width=90, textvariable=self.preprompt).grid(row=r, column=1, columnspan=2, sticky="we"); r += 1
+        main = ttk.Frame(root, style="PromptBot.TFrame", padding=(32, 28, 32, 32))
+        main.grid(row=0, column=0, sticky="nsew")
+        main.grid_columnconfigure(0, weight=1)
+        main.grid_rowconfigure(2, weight=1)
 
-        tk.Label(root, text="Delay between prompts, seconds").grid(row=r, column=0, sticky="e")
-        tk.Spinbox(root, from_=10, to=900, increment=10, width=8, textvariable=self.delay_sec).grid(row=r, column=1, sticky="w"); r += 1
+        header = ttk.Frame(main, style="PromptBotHeader.TFrame", padding=(28, 24))
+        header.grid(row=0, column=0, sticky="nsew")
+        header.grid_columnconfigure(1, weight=1)
+        self._build_header(header)
 
-        tk.Label(root, text="Primary URL").grid(row=r, column=0, sticky="e")
-        tk.Entry(root, width=90, textvariable=self.primary_url).grid(row=r, column=1, columnspan=2, sticky="we"); r += 1
-        tk.Label(root, text="Fallback URL").grid(row=r, column=0, sticky="e")
-        tk.Entry(root, width=90, textvariable=self.fallback_url).grid(row=r, column=1, columnspan=2, sticky="we"); r += 1
+        form_card = ttk.Frame(main, style="PromptBotCard.TFrame", padding=(28, 24))
+        form_card.grid(row=1, column=0, sticky="nsew", pady=(28, 0))
+        form_card.grid_columnconfigure(1, weight=1)
+        form_card.grid_columnconfigure(2, weight=0)
 
-        btns = tk.Frame(root)
-        btns.grid(row=r, column=0, columnspan=3, pady=6, sticky="w")
-        tk.Button(btns, text="Run setup", command=self._run_setup).pack(side="left", padx=4)
-        tk.Button(btns, text="Start generation", command=self._start).pack(side="left", padx=4)
-        self.pause_btn = tk.Button(btns, text="Pause wait", command=self._toggle_pause)
-        self.pause_btn.pack(side="left", padx=4)
-        tk.Button(btns, text="Skip wait now", command=self._skip_now).pack(side="left", padx=4)
-        tk.Button(btns, text="Stop", command=self._stop).pack(side="left", padx=4)
-        tk.Button(btns, text="Launch profile in Chrome", command=self._launch_profile_browser).pack(side="left", padx=4)
-        # new helper to build characters.json and name_variants.json
-        tk.Button(btns, text="Generate JSONs", command=self._generate_jsons).pack(side="left", padx=4)
-        r += 1
+        row = 0
+        ttk.Label(form_card, text="Project files", style="PromptBotSection.TLabel").grid(row=row, column=0, columnspan=3, sticky="w")
+        row += 1
+        ttk.Label(
+            form_card,
+            text="Supply PromptBot with the prompts, character mappings, and output locations.",
+            style="PromptBotNote.TLabel",
+            wraplength=600,
+            justify="left",
+        ).grid(row=row, column=0, columnspan=3, sticky="w", pady=(4, 18))
+        row += 1
 
-        self.console = scrolledtext.ScrolledText(root, width=110, height=24, state="disabled")
-        self.console.grid(row=r, column=0, columnspan=3, pady=6, sticky="nsew")
-        root.grid_columnconfigure(1, weight=1)
-        root.grid_rowconfigure(r, weight=1)
+        self._row(form_card, "Prompts file", self.csv_path, self._pick_csv, row); row += 1
+        self._row(form_card, "characters.json", self.char_json, self._pick_json_char, row); row += 1
+        self._row(form_card, "name_variants.json", self.variants_json, self._pick_json_var, row); row += 1
+        self._row(form_card, "Chrome profile folder", self.profile_dir, lambda: self._pick_folder(self.profile_dir), row); row += 1
+        self._row(form_card, "Outputs folder", self.output_dir, lambda: self._pick_folder(self.output_dir), row); row += 1
+
+        ttk.Separator(form_card, orient="horizontal", style="PromptBot.TSeparator").grid(
+            row=row, column=0, columnspan=3, sticky="ew", pady=(8, 18)
+        )
+        row += 1
+
+        ttk.Label(form_card, text="Generation settings", style="PromptBotSection.TLabel").grid(
+            row=row, column=0, columnspan=3, sticky="w"
+        )
+        row += 1
+        ttk.Label(
+            form_card,
+            text="Adjust default prompt text, pacing, and ChatGPT endpoints.",
+            style="PromptBotNote.TLabel",
+            wraplength=600,
+            justify="left",
+        ).grid(row=row, column=0, columnspan=3, sticky="w", pady=(4, 16))
+        row += 1
+
+        ttk.Label(form_card, text="Preprompt", style="PromptBotFieldLabel.TLabel").grid(row=row, column=0, sticky="w")
+        ttk.Entry(form_card, textvariable=self.preprompt, style="PromptBot.TEntry").grid(
+            row=row, column=1, columnspan=2, sticky="ew", pady=(0, 14), padx=(0, 16)
+        )
+        row += 1
+
+        ttk.Label(
+            form_card,
+            text="Delay between prompts (seconds)",
+            style="PromptBotFieldLabel.TLabel",
+        ).grid(row=row, column=0, sticky="w")
+        ttk.Spinbox(
+            form_card,
+            from_=10,
+            to=900,
+            increment=10,
+            width=10,
+            textvariable=self.delay_sec,
+            style="PromptBot.TSpinbox",
+        ).grid(row=row, column=1, sticky="w", pady=(0, 14), padx=(0, 16))
+        row += 1
+
+        ttk.Label(form_card, text="Primary URL", style="PromptBotFieldLabel.TLabel").grid(row=row, column=0, sticky="w")
+        ttk.Entry(form_card, textvariable=self.primary_url, style="PromptBot.TEntry").grid(
+            row=row, column=1, columnspan=2, sticky="ew", pady=(0, 12), padx=(0, 16)
+        )
+        row += 1
+
+        ttk.Label(form_card, text="Fallback URL", style="PromptBotFieldLabel.TLabel").grid(row=row, column=0, sticky="w")
+        ttk.Entry(form_card, textvariable=self.fallback_url, style="PromptBot.TEntry").grid(
+            row=row, column=1, columnspan=2, sticky="ew", pady=(0, 18), padx=(0, 16)
+        )
+        row += 1
+
+        btns = ttk.Frame(form_card, style="PromptBotCard.TFrame")
+        btns.grid(row=row, column=0, columnspan=3, sticky="w", pady=(0, 4))
+
+        ttk.Button(btns, text="Run setup", command=self._run_setup, style="Secondary.TButton").pack(side="left", padx=(0, 10), pady=(0, 4))
+        ttk.Button(btns, text="Start generation", command=self._start, style="Primary.TButton").pack(side="left", padx=(0, 10), pady=(0, 4))
+        self.pause_btn = ttk.Button(btns, text="Pause wait", command=self._toggle_pause, style="Secondary.TButton")
+        self.pause_btn.pack(side="left", padx=(0, 10), pady=(0, 4))
+        ttk.Button(btns, text="Skip wait now", command=self._skip_now, style="Secondary.TButton").pack(side="left", padx=(0, 10), pady=(0, 4))
+        ttk.Button(btns, text="Stop", command=self._stop, style="Danger.TButton").pack(side="left", padx=(0, 10), pady=(0, 4))
+        ttk.Button(
+            btns,
+            text="Launch profile in Chrome",
+            command=self._launch_profile_browser,
+            style="Secondary.TButton",
+        ).pack(side="left", padx=(0, 10), pady=(0, 4))
+        ttk.Button(
+            btns,
+            text="Generate JSONs",
+            command=self._generate_jsons,
+            style="Accent.TButton",
+        ).pack(side="left", padx=(0, 10), pady=(0, 4))
+
+        log_card = ttk.Frame(main, style="PromptBotCard.TFrame", padding=(28, 24))
+        log_card.grid(row=2, column=0, sticky="nsew", pady=(28, 0))
+        log_card.grid_columnconfigure(0, weight=1)
+        log_card.grid_rowconfigure(2, weight=1)
+
+        ttk.Label(log_card, text="Activity log", style="PromptBotSection.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            log_card,
+            text="Monitor setup and batch progress. Messages update automatically while jobs run.",
+            style="PromptBotNote.TLabel",
+            wraplength=600,
+            justify="left",
+        ).grid(row=1, column=0, sticky="w", pady=(4, 12))
+
+        self.console = scrolledtext.ScrolledText(
+            log_card,
+            width=110,
+            height=24,
+            state="disabled",
+            relief="flat",
+            borderwidth=0,
+            wrap="word",
+        )
+        self.console.grid(row=2, column=0, sticky="nsew")
+        self.console.configure(
+            background=self.colors["console_bg"],
+            foreground=self.colors["text"],
+            insertbackground=self.colors["accent"],
+            highlightthickness=1,
+            highlightbackground=self.colors["border"],
+            highlightcolor=self.colors["accent"],
+            selectbackground=self.colors["accent"],
+            selectforeground=self.colors["background"],
+            font="TkFixedFont",
+        )
+
+    # styling helpers
+    def _blend_colors(self, color_a: str, color_b: str, ratio: float) -> str:
+        ratio = max(0.0, min(1.0, ratio))
+
+        def hex_to_rgb(value: str) -> tuple[int, int, int]:
+            value = value.lstrip("#")
+            return tuple(int(value[i : i + 2], 16) for i in (0, 2, 4))
+
+        r1, g1, b1 = hex_to_rgb(color_a)
+        r2, g2, b2 = hex_to_rgb(color_b)
+        r = int(r1 + (r2 - r1) * ratio)
+        g = int(g1 + (g2 - g1) * ratio)
+        b = int(b1 + (b2 - b1) * ratio)
+        return f"#{r:02x}{g:02x}{b:02x}"
+
+    def _init_palette(self):
+        self.colors = {
+            "background": "#041326",
+            "card": "#0b1f3a",
+            "card_highlight": "#11284d",
+            "primary": "#0f6dff",
+            "accent": "#38bdf8",
+            "text": "#f8fafc",
+            "muted": "#8ea2c3",
+            "label": "#dbeafe",
+            "border": "#1e3357",
+            "console_bg": "#07142c",
+            "input_bg": "#102646",
+            "danger": "#ef4444",
+            "disabled_bg": "#102037",
+            "disabled_fg": "#46546b",
+        }
+        self.colors["primary_dark"] = self._blend_colors(self.colors["primary"], "#000000", 0.2)
+        self.colors["primary_hover"] = self._blend_colors(self.colors["primary"], "#ffffff", 0.18)
+        self.colors["accent_muted"] = self._blend_colors(self.colors["accent"], "#ffffff", 0.6)
+        self.colors["accent_hover"] = self._blend_colors(self.colors["accent"], "#ffffff", 0.24)
+        self.colors["secondary_bg"] = self._blend_colors(self.colors["card"], "#ffffff", 0.08)
+        self.colors["secondary_hover"] = self._blend_colors(self.colors["secondary_bg"], "#ffffff", 0.12)
+        self.colors["danger_hover"] = self._blend_colors(self.colors["danger"], "#ffffff", 0.14)
+
+    def _init_styles(self):
+        self._init_palette()
+        style = ttk.Style()
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+
+        style.configure("PromptBot.TFrame", background=self.colors["background"])
+        style.configure("PromptBotHeader.TFrame", background=self.colors["primary"])
+        style.configure("PromptBotCard.TFrame", background=self.colors["card"])
+
+        style.configure("HeaderTitle.TLabel", background=self.colors["primary"], foreground="white", font=("Segoe UI", 20, "bold"))
+        style.configure(
+            "HeaderSubtitle.TLabel",
+            background=self.colors["primary"],
+            foreground=self.colors["accent_muted"],
+            font=("Segoe UI", 11),
+        )
+        style.configure("PromptBotSection.TLabel", background=self.colors["card"], foreground=self.colors["label"], font=("Segoe UI", 11, "bold"))
+        style.configure("PromptBot.TLabel", background=self.colors["card"], foreground=self.colors["text"], font=("Segoe UI", 10))
+        style.configure("PromptBotFieldLabel.TLabel", background=self.colors["card"], foreground=self.colors["muted"], font=("Segoe UI", 10, "bold"))
+        style.configure("PromptBotNote.TLabel", background=self.colors["card"], foreground=self.colors["muted"], font=("Segoe UI", 9))
+
+        style.configure(
+            "Primary.TButton",
+            background=self.colors["primary"],
+            foreground="white",
+            font=("Segoe UI", 10, "bold"),
+            padding=(18, 10),
+            borderwidth=0,
+            relief="flat",
+        )
+        style.map(
+            "Primary.TButton",
+            background=[("active", self.colors["primary_hover"]), ("disabled", self.colors["disabled_bg"])],
+            foreground=[("disabled", self.colors["disabled_fg"])],
+        )
+
+        style.configure(
+            "Secondary.TButton",
+            background=self.colors["secondary_bg"],
+            foreground=self.colors["text"],
+            font=("Segoe UI", 10),
+            padding=(16, 10),
+            borderwidth=0,
+            relief="flat",
+        )
+        style.map(
+            "Secondary.TButton",
+            background=[("active", self.colors["secondary_hover"]), ("disabled", self.colors["disabled_bg"])],
+            foreground=[("disabled", self.colors["disabled_fg"])],
+        )
+
+        style.configure(
+            "Accent.TButton",
+            background=self.colors["accent"],
+            foreground=self.colors["background"],
+            font=("Segoe UI", 10, "bold"),
+            padding=(16, 10),
+            borderwidth=0,
+            relief="flat",
+        )
+        style.map(
+            "Accent.TButton",
+            background=[("active", self.colors["accent_hover"]), ("disabled", self.colors["disabled_bg"])],
+            foreground=[("disabled", self.colors["disabled_fg"])],
+        )
+
+        style.configure(
+            "Danger.TButton",
+            background=self.colors["danger"],
+            foreground="white",
+            font=("Segoe UI", 10, "bold"),
+            padding=(16, 10),
+            borderwidth=0,
+            relief="flat",
+        )
+        style.map(
+            "Danger.TButton",
+            background=[("active", self.colors["danger_hover"]), ("disabled", self.colors["disabled_bg"])],
+            foreground=[("disabled", self.colors["disabled_fg"])],
+        )
+
+        style.configure(
+            "PromptBot.TEntry",
+            fieldbackground=self.colors["input_bg"],
+            background=self.colors["input_bg"],
+            foreground=self.colors["text"],
+            padding=(10, 6),
+        )
+        style.map(
+            "PromptBot.TEntry",
+            fieldbackground=[("focus", self.colors["card_highlight"])],
+        )
+
+        style.configure(
+            "PromptBot.TSpinbox",
+            fieldbackground=self.colors["input_bg"],
+            background=self.colors["input_bg"],
+            foreground=self.colors["text"],
+            padding=(10, 6),
+            arrowsize=14,
+        )
+        style.map(
+            "PromptBot.TSpinbox",
+            fieldbackground=[("focus", self.colors["card_highlight"])],
+        )
+
+        style.configure("PromptBot.TSeparator", background=self.colors["border"])
+
+        self.style = style
+
+    def _build_header(self, parent: ttk.Frame):
+        icon = tk.Canvas(parent, width=72, height=72, bg=self.colors["primary"], highlightthickness=0)
+        icon.grid(row=0, column=0, rowspan=2, padx=(0, 20))
+        self._draw_logo_icon(icon)
+
+        ttk.Label(parent, text="PromptBot", style="HeaderTitle.TLabel").grid(row=0, column=1, sticky="w")
+        ttk.Label(
+            parent,
+            text="Batch prompts to orchestrate cinematic caption imagery.",
+            style="HeaderSubtitle.TLabel",
+            wraplength=520,
+            justify="left",
+        ).grid(row=1, column=1, sticky="w", pady=(6, 0))
+
+    def _draw_logo_icon(self, canvas: tk.Canvas):
+        canvas.delete("all")
+        base = self.colors["primary"]
+        halo = self.colors["primary_dark"]
+        accent = self.colors["accent"]
+
+        canvas.create_oval(6, 12, 66, 70, fill=halo, outline=accent, width=4)
+        canvas.create_line(36, 6, 36, 18, fill=accent, width=4, capstyle=tk.ROUND)
+        canvas.create_oval(30, 0, 42, 12, fill=accent, outline=accent)
+        canvas.create_rectangle(20, 28, 52, 54, fill=base, outline=accent, width=3)
+        canvas.create_oval(26, 36, 34, 44, fill="white", outline=base, width=2)
+        canvas.create_oval(38, 36, 46, 44, fill="white", outline=base, width=2)
+        canvas.create_rectangle(30, 48, 42, 54, fill=accent, outline=accent)
 
     # rows
-    def _row(self, label, var, cmd, row):
-        tk.Label(self.root, text=label).grid(row=row, column=0, sticky="e")
-        tk.Entry(self.root, width=90, textvariable=var).grid(row=row, column=1, sticky="we")
-        tk.Button(self.root, text="Browse", command=cmd).grid(row=row, column=2, sticky="w")
+    def _row(self, parent, label, var, cmd, row):
+        ttk.Label(parent, text=label, style="PromptBotFieldLabel.TLabel").grid(row=row, column=0, sticky="w")
+        ttk.Entry(parent, textvariable=var, style="PromptBot.TEntry").grid(
+            row=row, column=1, sticky="ew", padx=(0, 16), pady=(0, 12)
+        )
+        ttk.Button(parent, text="Browse", command=cmd, style="Secondary.TButton").grid(row=row, column=2, sticky="w", pady=(0, 12))
 
     # pickers
     def _pick_csv(self):
