@@ -4,7 +4,7 @@
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext
-import threading, time, json, re, sys, contextlib
+import threading, time, json, re, sys, contextlib, os, shutil, subprocess
 from pathlib import Path
 from datetime import datetime
 from urllib.parse import urlparse
@@ -23,12 +23,18 @@ class ImageGenApp:
         self.running_thread = None
         self.skip_event = threading.Event()
         self.stop_event = threading.Event()
+        self.pause_event = threading.Event()
         self.config_path = Path("generator_config.json")
 
         # defaults
         self.primary_url = tk.StringVar(value="https://chat.openai.com/?model=gpt-5")
         self.fallback_url = tk.StringVar(value="https://chatgpt.com/?model=gpt-5")
-        self.profile_dir = tk.StringVar(value=str(Path.cwd() / "chrome_profile"))
+        default_profile = Path.cwd() / "chrome_profile"
+        if sys.platform == "win32":
+            local_app = os.environ.get("LOCALAPPDATA")
+            if local_app:
+                default_profile = Path(local_app) / "ChromeProfiles" / "chatgpt_profile"
+        self.profile_dir = tk.StringVar(value=str(default_profile))
         self.output_dir = tk.StringVar(value=str(Path.cwd() / "outputs"))
         self.csv_path = tk.StringVar()
         self.char_json = tk.StringVar()
@@ -62,8 +68,11 @@ class ImageGenApp:
         btns.grid(row=r, column=0, columnspan=3, pady=6, sticky="w")
         tk.Button(btns, text="Run setup", command=self._run_setup).pack(side="left", padx=4)
         tk.Button(btns, text="Start generation", command=self._start).pack(side="left", padx=4)
+        self.pause_btn = tk.Button(btns, text="Pause wait", command=self._toggle_pause)
+        self.pause_btn.pack(side="left", padx=4)
         tk.Button(btns, text="Skip wait now", command=self._skip_now).pack(side="left", padx=4)
         tk.Button(btns, text="Stop", command=self._stop).pack(side="left", padx=4)
+        tk.Button(btns, text="Launch profile in Chrome", command=self._launch_profile_browser).pack(side="left", padx=4)
         # new helper to build characters.json and name_variants.json
         tk.Button(btns, text="Generate JSONs", command=self._generate_jsons).pack(side="left", padx=4)
         r += 1
@@ -109,7 +118,6 @@ class ImageGenApp:
     # setup
     def _run_setup(self):
         def worker():
-            import subprocess
             cmds = [
                 ["pip", "install", "playwright", "pandas"],
                 ["playwright", "install"],
@@ -236,6 +244,8 @@ class ImageGenApp:
 
         self.skip_event.clear()
         self.stop_event.clear()
+        self.pause_event.clear()
+        self._update_pause_button(False)
         self._save_config()
         self.running_thread = threading.Thread(target=self._run_generator, daemon=True)
         self.running_thread.start()
@@ -245,7 +255,81 @@ class ImageGenApp:
 
     def _stop(self):
         self.stop_event.set()
+        self.pause_event.clear()
+        self._update_pause_button(False)
         self.log("Stop requested, will halt after the current step.")
+
+    def _update_pause_button(self, paused: bool):
+        if hasattr(self, "pause_btn"):
+            self.pause_btn.config(text="Resume wait" if paused else "Pause wait")
+
+    def _toggle_pause(self):
+        if not self.running_thread or not self.running_thread.is_alive():
+            messagebox.showinfo("Not running", "Start generation before using pause.")
+            return
+        if self.pause_event.is_set():
+            self.pause_event.clear()
+            self._update_pause_button(False)
+            self.log("Countdown resumed.")
+        else:
+            self.pause_event.set()
+            self._update_pause_button(True)
+            self.log("Countdown paused. Click 'Resume wait' to continue.")
+
+    def _resolve_chrome_executable(self) -> str | None:
+        env_path = os.environ.get("CHROME_PATH")
+        if env_path and Path(env_path).exists():
+            return str(Path(env_path))
+
+        candidates = []
+        if sys.platform == "win32":
+            roots = [
+                os.environ.get("PROGRAMFILES"),
+                os.environ.get("PROGRAMFILES(X86)"),
+                os.environ.get("LOCALAPPDATA"),
+            ]
+            for root in roots:
+                if not root:
+                    continue
+                candidates.append(Path(root) / "Google/Chrome/Application/chrome.exe")
+        else:
+            candidates.extend(
+                Path(p) for p in [
+                    "/usr/bin/google-chrome",
+                    "/usr/bin/chromium",
+                    "/usr/bin/chromium-browser",
+                    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                ]
+            )
+
+        for cand in candidates:
+            if cand and cand.exists():
+                return str(cand)
+
+        for name in ["chrome", "google-chrome", "chromium", "chromium-browser"]:
+            path = shutil.which(name)
+            if path:
+                return path
+        return None
+
+    def _launch_profile_browser(self):
+        chrome_path = self._resolve_chrome_executable()
+        if not chrome_path:
+            messagebox.showerror(
+                "Chrome not found",
+                "Could not locate Chrome. Install it or set CHROME_PATH to the executable.",
+            )
+            return
+
+        profile = Path(self.profile_dir.get()).expanduser()
+        profile.mkdir(parents=True, exist_ok=True)
+        target_url = self.primary_url.get().strip() or self.fallback_url.get().strip() or "https://chatgpt.com/?model=gpt-5"
+
+        try:
+            subprocess.Popen([chrome_path, f"--user-data-dir={profile}", target_url])
+            self.log(f"Launched Chrome with profile {profile}")
+        except Exception as e:
+            messagebox.showerror("Launch failed", f"Could not launch Chrome: {e}")
 
     # config persistence
     def _save_config(self):
@@ -663,11 +747,17 @@ class ImageGenApp:
                     remaining = DELAY_BETWEEN_PROMPTS
                     log(f"Waiting up to {remaining // 60} minutes. Click 'Skip wait now' to continue immediately.")
                     while remaining > 0 and not self.skip_event.is_set() and not self.stop_event.is_set():
+                        if self.pause_event.is_set():
+                            time.sleep(0.5)
+                            continue
                         if remaining % 10 == 0 or remaining == 1:
                             mins, secs = divmod(remaining, 60)
                             self.log(f"Time left: {mins:02d}:{secs:02d}")
                         time.sleep(1)
                         remaining -= 1
+
+                    self.pause_event.clear()
+                    self._update_pause_button(False)
 
                     if self.skip_event.is_set():
                         log(">> Skip pressed, continuing")
@@ -680,6 +770,9 @@ class ImageGenApp:
                 log("All prompts processed.")
         except Exception as e:
             log(f"Fatal error, {e}")
+        finally:
+            self.pause_event.clear()
+            self._update_pause_button(False)
 
     def _set_status_line(self, text):
         # kept for compatibility, but not used by the new countdown
