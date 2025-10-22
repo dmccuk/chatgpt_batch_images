@@ -20,6 +20,12 @@ class ImageGenApp:
     def __init__(self, root):
         self.root = root
         self.root.title("PromptBot caption & image generator")
+        icon_path = Path(__file__).with_name("promptBot.ico")
+        if icon_path.exists():
+            try:
+                self.root.iconbitmap(icon_path)
+            except tk.TclError:
+                pass
 
         # state
         self.running_thread = None
