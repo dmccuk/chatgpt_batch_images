@@ -638,32 +638,87 @@ class ImageGenApp:
                 return loc
             raise TimeoutError("Composer not visible")
 
-        def ensure_composer_ready(page):
+        def ensure_composer_ready(page, *, timeout_ms=6000, allow_reload=True, allow_new_chat=True):
             try:
-                return find_composer_any_frame(page, timeout_ms=6000)
+                return find_composer_any_frame(page, timeout_ms=timeout_ms)
             except Exception:
                 pass
-            if not in_conversation(page.url):
+            if allow_new_chat and not in_conversation(page.url):
                 for sel in SELECTORS["new_chat_buttons"]:
                     with contextlib.suppress(Exception):
                         el = page.locator(sel).first
-                        if el.is_visible():
+                        if el.is_visible(timeout=1200):
                             el.click()
                             page.wait_for_load_state("domcontentloaded")
-                            return find_composer_any_frame(page, timeout_ms=6000)
-            page.reload()
+                            return find_composer_any_frame(page, timeout_ms=timeout_ms)
+            if not allow_reload:
+                raise TimeoutError("Composer not visible (reload skipped)")
+            page.reload(wait_until="domcontentloaded", timeout=15000)
             dismiss_common_popups(page)
-            return find_composer_any_frame(page, timeout_ms=8000)
+            return find_composer_any_frame(page, timeout_ms=max(timeout_ms, 8000))
+
+        def looks_like_login(page):
+            url = (page.url or "").lower()
+            for token in ("login", "signin", "auth", "account"):
+                if token in url and "logout" not in url:
+                    return True
+            text_clues = [
+                "Log in",
+                "Sign in",
+                "Welcome back",
+                "Continue with",
+                "Use the ChatGPT app to continue",
+                "Verify you are human",
+                "human check",
+            ]
+            for clue in text_clues:
+                with contextlib.suppress(Exception):
+                    loc = page.get_by_text(clue, exact=False).first
+                    if loc.is_visible(timeout=300):
+                        return True
+            selector_clues = [
+                "input[type='email']",
+                "input[type='password']",
+                "button:has-text('Log in')",
+                "button:has-text('Sign in')",
+                "form[action*='login']",
+                "iframe[src*='captcha']",
+                "iframe[title*='captcha']",
+            ]
+            for sel in selector_clues:
+                with contextlib.suppress(Exception):
+                    loc = page.locator(sel).first
+                    if loc.is_visible(timeout=300):
+                        return True
+            with contextlib.suppress(Exception):
+                for frame in page.frames:
+                    if frame is page:
+                        continue
+                    f_url = (frame.url or "").lower()
+                    if "captcha" in f_url or "auth" in f_url:
+                        return True
+            return False
 
         def goto_with_fallback(page):
-            for url in [self.primary_url.get(), self.fallback_url.get()]:
-                page.goto(url)
-                dismiss_common_popups(page)
+            urls = [PRIMARY_URL, FALLBACK_URL]
+            for attempt, url in enumerate(urls, start=1):
                 try:
-                    comp = ensure_composer_ready(page)
-                    if comp: return
+                    page.goto(url, wait_until="domcontentloaded", timeout=15000)
+                except PWTimeout:
+                    log(f"Navigation to {url} hit timeout, continuing (attempt {attempt}).")
+                except Exception as e:
+                    log(f"Navigation to {url} failed, {e}")
+                    continue
+                dismiss_common_popups(page)
+                if looks_like_login(page):
+                    return None, True
+                try:
+                    comp = ensure_composer_ready(page, timeout_ms=2500, allow_reload=False)
+                    if comp:
+                        return comp, False
                 except Exception:
                     pass
+            return None, False
 
         # do work
         try:
@@ -684,15 +739,23 @@ class ImageGenApp:
                     accept_downloads=True,
                 )
                 page = ctx.new_page()
-                goto_with_fallback(page)
+                composer, login_needed = goto_with_fallback(page)
+                needs_user_action = login_needed or composer is None
 
-                log("If you see a login or human check, finish it in Chrome, open a chat, then return here and click OK.")
-                if not messagebox.askokcancel("Login check", "Finish login if needed, then click OK to start."):
-                    log("Canceled by user.")
-                    return
+                if needs_user_action:
+                    log("If you see a login or human check, finish it in Chrome, open a chat, then return here and click OK.")
+                    if not messagebox.askokcancel("Login check", "Finish login if needed, then click OK to start."):
+                        log("Canceled by user.")
+                        return
+                    with contextlib.suppress(Exception):
+                        page.wait_for_load_state("domcontentloaded", timeout=15000)
+                    dismiss_common_popups(page)
+                    composer = None
+                else:
+                    log("Chat composer detected immediately; starting batch run.")
 
                 try:
-                    composer = ensure_composer_ready(page)
+                    composer = composer or ensure_composer_ready(page)
                 except Exception:
                     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
                     snap = Path(OUTPUT_DIR) / f"debug_no_composer_{ts}.png"
