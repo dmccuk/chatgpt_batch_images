@@ -54,18 +54,18 @@ class ImageGenApp:
         self.root.grid_rowconfigure(0, weight=1)
         self.root.grid_columnconfigure(0, weight=1)
 
-        main = ttk.Frame(root, style="PromptBot.TFrame", padding=(32, 28, 32, 32))
+        main = ttk.Frame(root, style="PromptBot.TFrame", padding=(24, 20, 24, 24))
         main.grid(row=0, column=0, sticky="nsew")
         main.grid_columnconfigure(0, weight=1)
         main.grid_rowconfigure(2, weight=1)
 
-        header = ttk.Frame(main, style="PromptBotHeader.TFrame", padding=(28, 24))
+        header = ttk.Frame(main, style="PromptBotHeader.TFrame", padding=(24, 20))
         header.grid(row=0, column=0, sticky="nsew")
         header.grid_columnconfigure(1, weight=1)
         self._build_header(header)
 
-        form_card = ttk.Frame(main, style="PromptBotCard.TFrame", padding=(28, 24))
-        form_card.grid(row=1, column=0, sticky="nsew", pady=(28, 0))
+        form_card = ttk.Frame(main, style="PromptBotCard.TFrame", padding=(24, 20))
+        form_card.grid(row=1, column=0, sticky="nsew", pady=(16, 0))
         form_card.grid_columnconfigure(1, weight=1)
         form_card.grid_columnconfigure(2, weight=0)
 
@@ -78,7 +78,7 @@ class ImageGenApp:
             style="PromptBotNote.TLabel",
             wraplength=600,
             justify="left",
-        ).grid(row=row, column=0, columnspan=3, sticky="w", pady=(4, 18))
+        ).grid(row=row, column=0, columnspan=3, sticky="w", pady=(4, 12))
         row += 1
 
         self._row(form_card, "Prompts file", self.csv_path, self._pick_csv, row); row += 1
@@ -88,7 +88,7 @@ class ImageGenApp:
         self._row(form_card, "Outputs folder", self.output_dir, lambda: self._pick_folder(self.output_dir), row); row += 1
 
         ttk.Separator(form_card, orient="horizontal", style="PromptBot.TSeparator").grid(
-            row=row, column=0, columnspan=3, sticky="ew", pady=(8, 18)
+            row=row, column=0, columnspan=3, sticky="ew", pady=(8, 14)
         )
         row += 1
 
@@ -102,12 +102,12 @@ class ImageGenApp:
             style="PromptBotNote.TLabel",
             wraplength=600,
             justify="left",
-        ).grid(row=row, column=0, columnspan=3, sticky="w", pady=(4, 16))
+        ).grid(row=row, column=0, columnspan=3, sticky="w", pady=(4, 12))
         row += 1
 
         ttk.Label(form_card, text="Preprompt", style="PromptBotFieldLabel.TLabel").grid(row=row, column=0, sticky="w")
         ttk.Entry(form_card, textvariable=self.preprompt, style="PromptBot.TEntry").grid(
-            row=row, column=1, columnspan=2, sticky="ew", pady=(0, 14), padx=(0, 16)
+            row=row, column=1, columnspan=2, sticky="ew", pady=(0, 10), padx=(0, 16)
         )
         row += 1
 
@@ -124,25 +124,24 @@ class ImageGenApp:
             width=10,
             textvariable=self.delay_sec,
             style="PromptBot.TSpinbox",
-        ).grid(row=row, column=1, sticky="w", pady=(0, 14), padx=(0, 16))
+        ).grid(row=row, column=1, sticky="w", pady=(0, 10), padx=(0, 16))
         row += 1
 
         ttk.Label(form_card, text="Primary URL", style="PromptBotFieldLabel.TLabel").grid(row=row, column=0, sticky="w")
         ttk.Entry(form_card, textvariable=self.primary_url, style="PromptBot.TEntry").grid(
-            row=row, column=1, columnspan=2, sticky="ew", pady=(0, 12), padx=(0, 16)
+            row=row, column=1, columnspan=2, sticky="ew", pady=(0, 10), padx=(0, 16)
         )
         row += 1
 
         ttk.Label(form_card, text="Fallback URL", style="PromptBotFieldLabel.TLabel").grid(row=row, column=0, sticky="w")
         ttk.Entry(form_card, textvariable=self.fallback_url, style="PromptBot.TEntry").grid(
-            row=row, column=1, columnspan=2, sticky="ew", pady=(0, 18), padx=(0, 16)
+            row=row, column=1, columnspan=2, sticky="ew", pady=(0, 12), padx=(0, 16)
         )
         row += 1
 
         btns = ttk.Frame(form_card, style="PromptBotCard.TFrame")
-        btns.grid(row=row, column=0, columnspan=3, sticky="w", pady=(0, 4))
+        btns.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(0, 2))
 
-        ttk.Button(btns, text="Run setup", command=self._run_setup, style="Secondary.TButton").pack(side="left", padx=(0, 6), pady=(0, 2))
         ttk.Button(btns, text="Start generation", command=self._start, style="Primary.TButton").pack(side="left", padx=(0, 6), pady=(0, 2))
         self.pause_btn = ttk.Button(btns, text="Pause wait", command=self._toggle_pause, style="Secondary.TButton")
         self.pause_btn.pack(side="left", padx=(0, 6), pady=(0, 2))
@@ -160,9 +159,15 @@ class ImageGenApp:
             command=self._generate_jsons,
             style="Accent.TButton",
         ).pack(side="left", padx=(0, 6), pady=(0, 2))
+        ttk.Button(
+            btns,
+            text="Exit",
+            command=self._exit_app,
+            style="Secondary.TButton",
+        ).pack(side="right", padx=(6, 0), pady=(0, 2))
 
-        log_card = ttk.Frame(main, style="PromptBotCard.TFrame", padding=(28, 24))
-        log_card.grid(row=2, column=0, sticky="nsew", pady=(28, 0))
+        log_card = ttk.Frame(main, style="PromptBotCard.TFrame", padding=(24, 20))
+        log_card.grid(row=2, column=0, sticky="nsew", pady=(16, 0))
         log_card.grid_columnconfigure(0, weight=1)
         log_card.grid_rowconfigure(2, weight=1)
 
@@ -173,7 +178,7 @@ class ImageGenApp:
             style="PromptBotNote.TLabel",
             wraplength=600,
             justify="left",
-        ).grid(row=1, column=0, sticky="w", pady=(4, 12))
+        ).grid(row=1, column=0, sticky="w", pady=(4, 10))
 
         self.console = scrolledtext.ScrolledText(
             log_card,
@@ -198,7 +203,7 @@ class ImageGenApp:
         )
 
         status_bar = ttk.Frame(log_card, style="PromptBotCard.TFrame")
-        status_bar.grid(row=3, column=0, sticky="ew", pady=(12, 0))
+        status_bar.grid(row=3, column=0, sticky="ew", pady=(8, 0))
         status_bar.grid_columnconfigure(0, weight=1)
         self.status_var = tk.StringVar(value="Ready.")
         ttk.Label(status_bar, textvariable=self.status_var, style="PromptBotStatus.TLabel").grid(
@@ -480,22 +485,6 @@ class ImageGenApp:
 
         self.root.after(0, updater)
 
-    # setup
-    def _run_setup(self):
-        def worker():
-            cmds = [
-                ["pip", "install", "playwright", "pandas"],
-                ["playwright", "install"],
-            ]
-            for cmd in cmds:
-                self.log(f"$ {' '.join(cmd)}")
-                try:
-                    subprocess.run(cmd, check=False)
-                except Exception as e:
-                    self.log(f"Setup step failed, {e}")
-            self.log("Setup complete.")
-        threading.Thread(target=worker, daemon=True).start()
-
     # new, auto generate characters.json and name_variants.json
     def _generate_jsons(self):
         img_dir = filedialog.askdirectory(title="Select character_images folder")
@@ -625,6 +614,21 @@ class ImageGenApp:
         self._update_pause_button(False)
         self.log("Stop requested, will halt after the current step.")
         self._set_activity_status("Stop requested. Finishing current step...")
+
+    def _exit_app(self):
+        def destroy_when_idle():
+            if self.running_thread and self.running_thread.is_alive():
+                self.root.after(150, destroy_when_idle)
+                return
+            self.root.destroy()
+
+        if self.running_thread and self.running_thread.is_alive():
+            self._stop()
+            self.log("Exit requested. Closing after the current step.")
+            self._set_activity_status("Exit requested. Shutting down after current step...")
+            self.root.after(150, destroy_when_idle)
+        else:
+            self.root.destroy()
 
     def _update_pause_button(self, paused: bool):
         if hasattr(self, "pause_btn"):
