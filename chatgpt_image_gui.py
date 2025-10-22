@@ -4,6 +4,7 @@
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext
+from tkinter import font as tkfont
 from tkinter import ttk
 import threading, time, json, re, sys, contextlib, os, shutil, subprocess
 from pathlib import Path
@@ -49,7 +50,6 @@ class ImageGenApp:
         # styling & layout
         self._init_styles()
         self.root.configure(bg=self.colors["background"])
-        self.root.option_add("*Font", "Segoe UI 10")
         self.root.minsize(940, 720)
         self.root.grid_rowconfigure(0, weight=1)
         self.root.grid_columnconfigure(0, weight=1)
@@ -237,35 +237,76 @@ class ImageGenApp:
         self.colors["secondary_hover"] = self._blend_colors(self.colors["secondary_bg"], "#ffffff", 0.12)
         self.colors["danger_hover"] = self._blend_colors(self.colors["danger"], "#ffffff", 0.14)
 
+    def _init_fonts(self):
+        family = "Segoe UI"
+        base = tkfont.Font(family=family, size=10)
+        bold = tkfont.Font(family=family, size=10, weight="bold")
+
+        self.fonts = {
+            "base": base,
+            "bold": bold,
+            "title": tkfont.Font(family=family, size=20, weight="bold"),
+            "subtitle": tkfont.Font(family=family, size=11),
+            "section": tkfont.Font(family=family, size=11, weight="bold"),
+            "note": tkfont.Font(family=family, size=9),
+        }
+
     def _init_styles(self):
         self._init_palette()
+        self._init_fonts()
         style = ttk.Style()
         try:
             style.theme_use("clam")
         except tk.TclError:
             pass
 
+        style.configure(".", font=self.fonts["base"])
         style.configure("PromptBot.TFrame", background=self.colors["background"])
         style.configure("PromptBotHeader.TFrame", background=self.colors["primary"])
         style.configure("PromptBotCard.TFrame", background=self.colors["card"])
 
-        style.configure("HeaderTitle.TLabel", background=self.colors["primary"], foreground="white", font=("Segoe UI", 20, "bold"))
+        style.configure(
+            "HeaderTitle.TLabel",
+            background=self.colors["primary"],
+            foreground="white",
+            font=self.fonts["title"],
+        )
         style.configure(
             "HeaderSubtitle.TLabel",
             background=self.colors["primary"],
             foreground=self.colors["accent_muted"],
-            font=("Segoe UI", 11),
+            font=self.fonts["subtitle"],
         )
-        style.configure("PromptBotSection.TLabel", background=self.colors["card"], foreground=self.colors["label"], font=("Segoe UI", 11, "bold"))
-        style.configure("PromptBot.TLabel", background=self.colors["card"], foreground=self.colors["text"], font=("Segoe UI", 10))
-        style.configure("PromptBotFieldLabel.TLabel", background=self.colors["card"], foreground=self.colors["muted"], font=("Segoe UI", 10, "bold"))
-        style.configure("PromptBotNote.TLabel", background=self.colors["card"], foreground=self.colors["muted"], font=("Segoe UI", 9))
+        style.configure(
+            "PromptBotSection.TLabel",
+            background=self.colors["card"],
+            foreground=self.colors["label"],
+            font=self.fonts["section"],
+        )
+        style.configure(
+            "PromptBot.TLabel",
+            background=self.colors["card"],
+            foreground=self.colors["text"],
+            font=self.fonts["base"],
+        )
+        style.configure(
+            "PromptBotFieldLabel.TLabel",
+            background=self.colors["card"],
+            foreground=self.colors["muted"],
+            font=self.fonts["bold"],
+        )
+        style.configure(
+            "PromptBotNote.TLabel",
+            background=self.colors["card"],
+            foreground=self.colors["muted"],
+            font=self.fonts["note"],
+        )
 
         style.configure(
             "Primary.TButton",
             background=self.colors["primary"],
             foreground="white",
-            font=("Segoe UI", 10, "bold"),
+            font=self.fonts["bold"],
             padding=(18, 10),
             borderwidth=0,
             relief="flat",
@@ -280,7 +321,7 @@ class ImageGenApp:
             "Secondary.TButton",
             background=self.colors["secondary_bg"],
             foreground=self.colors["text"],
-            font=("Segoe UI", 10),
+            font=self.fonts["base"],
             padding=(16, 10),
             borderwidth=0,
             relief="flat",
@@ -295,7 +336,7 @@ class ImageGenApp:
             "Accent.TButton",
             background=self.colors["accent"],
             foreground=self.colors["background"],
-            font=("Segoe UI", 10, "bold"),
+            font=self.fonts["bold"],
             padding=(16, 10),
             borderwidth=0,
             relief="flat",
@@ -310,7 +351,7 @@ class ImageGenApp:
             "Danger.TButton",
             background=self.colors["danger"],
             foreground="white",
-            font=("Segoe UI", 10, "bold"),
+            font=self.fonts["bold"],
             padding=(16, 10),
             borderwidth=0,
             relief="flat",
@@ -326,6 +367,7 @@ class ImageGenApp:
             fieldbackground=self.colors["input_bg"],
             background=self.colors["input_bg"],
             foreground=self.colors["text"],
+            font=self.fonts["base"],
             padding=(10, 6),
         )
         style.map(
@@ -338,6 +380,7 @@ class ImageGenApp:
             fieldbackground=self.colors["input_bg"],
             background=self.colors["input_bg"],
             foreground=self.colors["text"],
+            font=self.fonts["base"],
             padding=(10, 6),
             arrowsize=14,
         )
