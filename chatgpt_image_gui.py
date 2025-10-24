@@ -20,6 +20,7 @@ class ImageGenApp:
     def __init__(self, root):
         self.root = root
         self.root.title("PromptBot caption & image generator")
+        self.root.protocol("WM_DELETE_WINDOW", self._exit_app)
         icon_path = Path(__file__).with_name("promptBot.ico")
         if icon_path.exists():
             try:
@@ -33,6 +34,7 @@ class ImageGenApp:
         self.stop_event = threading.Event()
         self.pause_event = threading.Event()
         self.config_path = Path("generator_config.json")
+        self._save_after_id: str | None = None
 
         # defaults
         self.primary_url = tk.StringVar(value="https://chat.openai.com/?model=gpt-5")
@@ -52,6 +54,7 @@ class ImageGenApp:
 
         # try load saved config
         self._load_config()
+        self._setup_config_autosave()
 
         # styling & layout
         self._init_styles()
@@ -169,6 +172,12 @@ class ImageGenApp:
             btns,
             text="Exit",
             command=self._exit_app,
+            style="Secondary.TButton",
+        ).pack(side="right", padx=(6, 0))
+        ttk.Button(
+            btns,
+            text="Save settings",
+            command=self._save_settings_now,
             style="Secondary.TButton",
         ).pack(side="right", padx=(6, 0))
 
@@ -622,6 +631,8 @@ class ImageGenApp:
         self._set_activity_status("Stop requested. Finishing current step...")
 
     def _exit_app(self):
+        self._save_config()
+
         def destroy_when_idle():
             if self.running_thread and self.running_thread.is_alive():
                 self.root.after(150, destroy_when_idle)
@@ -712,6 +723,8 @@ class ImageGenApp:
 
     # config persistence
     def _save_config(self):
+        self._cancel_pending_config_save()
+
         data = dict(
             csv=self.csv_path.get(),
             characters=self.char_json.get(),
@@ -723,7 +736,12 @@ class ImageGenApp:
             primary=self.primary_url.get(),
             fallback=self.fallback_url.get(),
         )
-        self.config_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        try:
+            self.config_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            return True
+        except OSError as exc:
+            self.log(f"Failed to save settings: {exc}")
+            return False
 
     def _load_config(self):
         if self.config_path.exists():
@@ -740,6 +758,54 @@ class ImageGenApp:
                 self.fallback_url.set(cfg.get("fallback", self.fallback_url.get()))
             except Exception:
                 pass
+
+    def _setup_config_autosave(self):
+        self._config_trace_ids: list[tuple[tk.Variable, str]] = []
+        config_vars = [
+            self.csv_path,
+            self.char_json,
+            self.variants_json,
+            self.output_dir,
+            self.profile_dir,
+            self.preprompt,
+            self.delay_sec,
+            self.primary_url,
+            self.fallback_url,
+        ]
+
+        for var in config_vars:
+            try:
+                trace_id = var.trace_add("write", self._on_config_var_change)
+            except AttributeError:
+                trace_id = var.trace("w", self._on_config_var_change)
+            self._config_trace_ids.append((var, trace_id))
+
+    def _on_config_var_change(self, *args):
+        self._schedule_config_save()
+
+    def _schedule_config_save(self):
+        self._cancel_pending_config_save()
+        self._save_after_id = self.root.after(600, self._perform_scheduled_save)
+
+    def _perform_scheduled_save(self):
+        self._save_after_id = None
+        self._save_config()
+
+    def _cancel_pending_config_save(self):
+        if self._save_after_id is not None:
+            try:
+                self.root.after_cancel(self._save_after_id)
+            except tk.TclError:
+                pass
+            finally:
+                self._save_after_id = None
+
+    def _save_settings_now(self):
+        if self._save_config():
+            self.log("Settings saved to generator_config.json.")
+            self._set_activity_status("Settings saved.")
+        else:
+            messagebox.showerror("Save failed", "Could not save settings to generator_config.json.")
 
     # --------------------- batch generation core ---------------------
 
