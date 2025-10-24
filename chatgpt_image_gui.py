@@ -59,7 +59,7 @@ class ImageGenApp:
         # styling & layout
         self._init_styles()
         self.root.configure(bg=self.colors["background"])
-        self.root.minsize(940, 600)
+        self.root.minsize(940, 500)
         self.root.grid_rowconfigure(0, weight=1)
         self.root.grid_columnconfigure(0, weight=1)
 
@@ -224,6 +224,12 @@ class ImageGenApp:
         ttk.Label(status_bar, textvariable=self.status_var, style="PromptBotStatus.TLabel").grid(
             row=0, column=0, sticky="w"
         )
+
+        self.root.update_idletasks()
+        width = self.root.winfo_width()
+        height = max(self.root.winfo_height() - 100, 100)
+        x_offset = (self.root.winfo_screenwidth() - width) // 2
+        self.root.geometry(f"{width}x{height}+{x_offset}+0")
 
     # styling helpers
     def _blend_colors(self, color_a: str, color_b: str, ratio: float) -> str:
