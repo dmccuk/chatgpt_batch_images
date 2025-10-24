@@ -35,6 +35,8 @@ class ImageGenApp:
         self.pause_event = threading.Event()
         self.config_path = Path("generator_config.json")
         self._save_after_id: str | None = None
+        self._window_geometry: str | None = None
+        self._last_geometry: str | None = None
 
         # defaults
         self.primary_url = tk.StringVar(value="https://chat.openai.com/?model=gpt-5")
@@ -226,10 +228,35 @@ class ImageGenApp:
         )
 
         self.root.update_idletasks()
+        if self._window_geometry:
+            try:
+                self.root.geometry(self._window_geometry)
+            except tk.TclError:
+                self._apply_default_geometry()
+        else:
+            self._apply_default_geometry()
+
+        self._last_geometry = self.root.geometry()
+        self.root.bind("<Configure>", self._on_window_configure)
+
+    def _apply_default_geometry(self):
         width = self.root.winfo_width()
         height = max(self.root.winfo_height() - 100, 100)
         x_offset = (self.root.winfo_screenwidth() - width) // 2
         self.root.geometry(f"{width}x{height}+{x_offset}+0")
+
+    def _on_window_configure(self, event):
+        if event.widget is not self.root:
+            return
+        if self.root.state() != "normal":
+            return
+        if event.width <= 1 or event.height <= 1:
+            return
+
+        geom = self.root.geometry()
+        if geom != self._last_geometry:
+            self._last_geometry = geom
+            self._schedule_config_save()
 
     # styling helpers
     def _blend_colors(self, color_a: str, color_b: str, ratio: float) -> str:
@@ -741,6 +768,7 @@ class ImageGenApp:
             delay=self.delay_sec.get(),
             primary=self.primary_url.get(),
             fallback=self.fallback_url.get(),
+            window_geometry=self._last_geometry or self.root.geometry(),
         )
         try:
             self.config_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -762,6 +790,9 @@ class ImageGenApp:
                 self.delay_sec.set(int(cfg.get("delay", 180)))
                 self.primary_url.set(cfg.get("primary", self.primary_url.get()))
                 self.fallback_url.set(cfg.get("fallback", self.fallback_url.get()))
+                geom = cfg.get("window_geometry")
+                if isinstance(geom, str) and geom:
+                    self._window_geometry = geom
             except Exception:
                 pass
 
